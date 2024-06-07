@@ -8,6 +8,7 @@ using System.Text;
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Identity;
 using Newtonsoft.Json;
+using WhatsappChatBot.Models;
 
 
 namespace WhatsappChatBot.Controllers
@@ -17,10 +18,13 @@ namespace WhatsappChatBot.Controllers
     public class WhatsAppController : ControllerBase
     {
         private readonly IConfiguration _configuration;
+        WhatsAppDbContext context;
+        public WhatsAppDbContext _context { get { return context; } }
 
         public WhatsAppController(IConfiguration configuration)
         {
             _configuration = configuration;
+            context = new WhatsAppDbContext(_configuration);
         }
 
         [HttpPost, HttpGet]
@@ -64,7 +68,12 @@ namespace WhatsappChatBot.Controllers
                     response["to"] = senderPhoneNumber;
 
                     JObject message = new JObject();
-                    message["body"] = "Hello World";
+
+                    //get employee name from db
+                    var employee = _context.Employees.Where(e => e.Id.ToString() ==
+                        incomingMessageText).FirstOrDefault();
+
+                    message["body"] = employee.Name + " -> " + employee.DepartmentName;
                     response["text"] = message;
                     await SendMessageAsync(response, senderId);
 
