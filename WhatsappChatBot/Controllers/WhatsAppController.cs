@@ -17,12 +17,10 @@ namespace WhatsappChatBot.Controllers
     public class WhatsAppController : ControllerBase
     {
         private readonly IConfiguration _configuration;
-        private readonly IstorageHelper _storageHelper;
 
-        public WhatsAppController(IConfiguration configuration, IstorageHelper storageHelper)
+        public WhatsAppController(IConfiguration configuration)
         {
             _configuration = configuration;
-            _storageHelper = storageHelper;
         }
 
         [HttpPost, HttpGet]
@@ -60,86 +58,16 @@ namespace WhatsappChatBot.Controllers
                     string senderId = receivedMessage["entry"][0]["changes"][0]["value"]["metadata"]["phone_number_id"].ToString();
                     string incomingMessageText = receivedMessage["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"].ToString();
 
-                    //new implementation
-                    ChatContext chatContext = null;
-
-                    if (incomingMessageText.ToLower().Equals("new"))
-                    {
-                        chatContext = new ChatContext()
-                        {
-                            Model = _configuration["OpenAi:Model"],
-                            Messages = new List<Message>()
-                            {
-                                new Message()
-                                {
-                                    Role = "user",
-                                    Content = "hi"
-                                }
-                            }
-                        };
-                    }
-                    else
-                    {
-                        var chatContextEntity = await _storageHelper.GetEntityAsync<GptResponseEntity>(_configuration
-                            ["StorageAccount:GPTContextTable"], "WhatsAppConversation", senderPhoneNumber);
-
-                        if(chatContextEntity != null)
-                        {
-                            chatContext = new ChatContext();
-                            chatContext.Messages = JsonConvert.DeserializeObject<List<Messages>>(chatContextEntity.UserContext);
-                            chatContext.Model = _configuration["OpenAI:Model"];
-                            chatContext.Messages.Add(new Message()
-                            {
-                                Role = "user",
-                                Content = incomingMessageText
-                            });
-                        }
-                        else
-                        {
-                            chatContext = new ChatContext()
-                            {
-                                Model = _configuration["OpenAI:Model"],
-                                Messages = new List<Message>()
-                                {
-                                    new Message()
-                                    {
-                                        RoleManager = "user",
-                                        Content = incomingMessageText
-                                    }
-                                }
-                            };
-                        }
-                    }
-
                     //create Response Async
                     JObject response = new JObject();
                     response["messaging_product"] = "whatsapp";
                     response["to"] = senderPhoneNumber;
 
                     JObject message = new JObject();
-                    Message gptResponse = await GetGPTResponse(incomingMessageText, chatContext);
+                    message["body"] = "Hello World";
+                    response["text"] = message;
+                    await SendMessageAsync(response, senderId);
 
-                    if (gptResponse != null)
-                    {
-                        message["body"] = gptResponse.Content;
-                        response["text"] = message;
-                        await SendMessageAsync(response, senderId);
-
-                        chatContext.Messages.Add(gptResponse);
-                        await _storageHelper.InsertEntityAsync(_configuration["StorageAccount:GPTContextTable"], 
-                            new GptResponseEntity()
-                            {
-                                PartitionKey = "WhatsAppConversation",
-                                RowKey = senderPhoneNumber,
-                                UserContext = JsonConvert.SerializeObject(chatContext.Messages)
-                            });
-                    }
-                    else
-                    {
-                        message["body"] = "Sorry, I didn't understand that.";
-                        response["text"] = message;
-                        await SendMessageAsync(response, senderId);
-                    }
                     return Ok();
                 }
             }
@@ -149,34 +77,6 @@ namespace WhatsappChatBot.Controllers
                 return BadRequest();
             }
             
-        }
-
-        private async Task<Message> GetGPTResponse(string text, object jsonBody)
-        {
-            //call an api with a POST request and json body with headers
-            HttpClient client = new HttpClient();
-            client.BaseAddress = new Uri(_configuration["OpenAI:APIEndpoint"]);
-            client.DefaultRequestHeaders.Accept.Clear();
-
-            client.DefaultRequestHeaders.Add("Authorization", "Bearer " + _configuration["OpenAI:APIKey"]);
-
-            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, client.BaseAddress);
-
-            request.Content = new StringContent(JsonConvert.SerializeObject(jsonBody), Encoding.UTF8, "applecation/json");
-            var response = await client.SendAsync(request).ConfigureAwait(false);
-            var responseString = string.Empty;
-            try
-            {
-                response.EnsureSuccessStatusCode();
-                responseString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                var responseJson = JObject.Parse(responseString);
-                return JsonConvert.DeserializeObject<Message>(responseJson["choices"][0]["message"].ToString());
-            }
-            catch (HttpRequestException ex)
-            {
-                await Console.Out.WriteLineAsync(ex.Message);
-                return null;
-            }
         }
 
         private async Task SendMessageAsync(JObject message, string senderId)
